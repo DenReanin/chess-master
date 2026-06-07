@@ -1,0 +1,24 @@
+# --- Secretos (¡NUNCA subir!) ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Datos y binarios (pesados / locales) ---
+data/
+stockfish/
+*.db
+*.sqlite3
+
+# --- Frontend ---
+frontend/node_modules/
+frontend/dist/
+
+# --- SO / IDE ---
+.DS_Store
+Thumbs.db
+.idea/

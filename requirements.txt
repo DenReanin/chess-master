@@ -1,0 +1,10 @@
+# Núcleo de ajedrez
+chess>=1.11
+
+# Backend / API web
+fastapi>=0.110
+uvicorn>=0.27
+
+# Utilidades
+httpx>=0.27
+python-dotenv>=1.0

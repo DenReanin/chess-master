@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f2227">
+  <title>Chess Master — Análisis</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand">♞ <span>Chess Master</span></div>
+    <button id="btn-fetch" class="btn">Descargar partidas</button>
+  </header>
+
+  <main>
+    <!-- Lista de partidas -->
+    <section id="games-view">
+      <h2>Tus partidas</h2>
+      <div id="games-list" class="games-list"></div>
+    </section>
+
+    <!-- Vista de una partida -->
+    <section id="game-view" class="hidden">
+      <button id="btn-back" class="btn ghost">← Volver</button>
+      <h2 id="game-title"></h2>
+      <p id="game-sub" class="sub"></p>
+      <div id="game-counts" class="counts"></div>
+
+      <div class="board-row">
+        <div id="evalbar"><div id="evalbar-white"></div></div>
+        <div>
+          <div class="board-wrap">
+            <div id="board"></div>
+            <svg id="arrows" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="controls">
+            <button id="btn-start" class="btn nav" title="Inicio">⏮</button>
+            <button id="btn-prev" class="btn nav" title="Anterior">◀</button>
+            <span id="eval-num" class="eval-num">+0.00</span>
+            <button id="btn-next" class="btn nav" title="Siguiente">▶</button>
+            <button id="btn-end" class="btn nav" title="Final">⏭</button>
+            <button id="btn-flip" class="btn nav" title="Girar tablero">⟲</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="move-info" class="move-info"></div>
+
+      <div class="actions">
+        <button id="btn-analyze" class="btn">Analizar partida</button>
+        <button id="btn-coach" class="btn accent hidden">Pedir comentario del coach</button>
+      </div>
+
+      <div id="coach-box" class="coach-box hidden">
+        <h3>🧑‍🏫 Tu entrenador</h3>
+        <div id="coach-text"></div>
+      </div>
+
+      <h3>Jugadas</h3>
+      <div id="move-list" class="move-list"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
