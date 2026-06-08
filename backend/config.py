@@ -38,12 +38,14 @@ def find_stockfish() -> str | None:
 STOCKFISH_PATH = find_stockfish()
 
 # --- Ajustes del análisis ---
-ANALYSIS_DEPTH = int(os.getenv("ANALYSIS_DEPTH", "16"))
+ANALYSIS_DEPTH = int(os.getenv("ANALYSIS_DEPTH", "18"))
 
-# Umbrales de clasificación por caída de probabilidad de victoria (0..1), estilo Lichess.
-WINPROB_INACCURACY = 0.10
-WINPROB_MISTAKE = 0.20
-WINPROB_BLUNDER = 0.30
+# Umbrales de clasificación por caída de probabilidad de victoria (0..1).
+# Ajustados para parecerse al informe de Chess.com (se pueden tunear).
+WINPROB_GOOD = 0.02
+WINPROB_INACCURACY = 0.05
+WINPROB_MISTAKE = 0.10
+WINPROB_BLUNDER = 0.20
 
 # Chess.com exige un User-Agent identificativo o devuelve 403.
 HTTP_USER_AGENT = f"chess-master/0.1 (analysis tool; user: {CHESSCOM_USERNAME or 'unknown'})"

@@ -82,3 +82,23 @@ Escribe un comentario de entrenador (máximo 200 palabras): empieza con algo pos
 explica el PATRÓN de los errores (no solo los listes), y termina con 2-3 consejos
 concretos y accionables para mejorar."""
     return _call(prompt)
+
+
+def coach_move(game_info: dict, move: dict) -> str:
+    """Explicación breve y enfocada de UNA jugada concreta."""
+    color = "blancas" if move["color"] == "white" else "negras"
+    autor = "tuya (del alumno)" if move["color"] == game_info.get("user_color") else "de tu rival"
+    lines = [
+        f"Partida {game_info.get('white')} vs {game_info.get('black')}. "
+        f"Analiza la jugada {move['move_number']} de las {color}, que es {autor}.",
+        f"- Jugada realizada: {move['san']} (el motor la clasifica como '{move['classification']}').",
+        f"- Evaluación tras la jugada: {move['eval_cp'] / 100:+.2f} (perspectiva de las blancas).",
+    ]
+    if move.get("best_san") and move["best_san"] != move["san"]:
+        lines.append(f"- La mejor jugada según Stockfish era: {move['best_san']}.")
+    lines.append(
+        "Explica en español (máx. 80 palabras): por qué merece esa etiqueta, la idea "
+        "detrás y, si aplica, qué era mejor y por qué. Si la jugada es de tu rival, "
+        "refiérete a ella como la de tu oponente, no como tuya."
+    )
+    return _call("\n".join(lines), max_tokens=400)

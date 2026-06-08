@@ -22,17 +22,40 @@ py -m venv .venv
 copy .env.example .env   # y edita .env con tu clave y tu usuario
 ```
 
-## Uso
+## Arrancar la herramienta (app web)
+
+Levanta el servidor (backend + interfaz) en el puerto **8000**:
 
 ```powershell
-# Descargar tus partidas (p. ej. los últimos 3 meses)
-.\.venv\Scripts\python.exe -m scripts.fetch_games --months 3
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
 
-# Analizar con Stockfish
-.\.venv\Scripts\python.exe -m scripts.analyze --limit 1 --depth 14
+Luego ábrela en el navegador:
 
-# Generar el comentario del entrenador (Gemini)
-.\.venv\Scripts\python.exe -m scripts.coach
+| Dónde | Dirección |
+|---|---|
+| 💻 En este PC | `http://127.0.0.1:8000` |
+| 📱 En el móvil (misma red WiFi) | `http://<IP-DE-TU-PC>:8000` |
+
+Para saber la IP de tu PC ejecuta `ipconfig` y mira la **IPv4** de tu red local
+(algo como `192.168.x.x`). Si el móvil no conecta, permite el puerto **8000** en el
+**Firewall de Windows** (la primera vez Windows suele preguntar → "Permitir").
+
+> Es una **PWA**: en el móvil puedes instalarla con el menú del navegador → *"Añadir a pantalla de inicio"*.
+
+### Cómo se usa
+
+1. **Descargar** → trae tus últimas partidas de Chess.com.
+2. **Abrir una partida** → se analiza sola con Stockfish y aparece el comentario del entrenador.
+3. **📊 Estadísticas** → patrones, fases y aperturas.
+4. **🎯 Entrenar** → ejercicios tácticos creados a partir de tus propios errores.
+
+### Avanzado: línea de comandos (opcional)
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.fetch_games --months 3   # descargar partidas
+.\.venv\Scripts\python.exe -m scripts.analyze --limit 1        # analizar con Stockfish
+.\.venv\Scripts\python.exe -m scripts.coach                    # comentario del entrenador
 ```
 
 ## Seguridad

@@ -9,7 +9,8 @@ async function api(path, opts) {
 
 const PIECE_BASE = "/pieces/cburnett/";
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-const ARROW_COLOR = "rgba(20, 160, 80, .9)";
+const ARROW_COLOR = "rgba(20, 160, 80, .9)";   // verde: lo que debiste jugar
+const BEST_COLOR = "rgba(70, 130, 220, .92)";  // azul: mejor jugada en la posición actual
 
 // Clasificaciones estilo Chess.com: etiqueta, símbolo y color.
 const CLS = {
@@ -27,7 +28,7 @@ const CLS = {
 const CLS_ORDER = ["brilliant", "great", "best", "excellent", "good", "book",
                    "inaccuracy", "miss", "mistake", "blunder"];
 
-const state = { game: null, moves: [], summary: null, ply: 0, orientation: "white" };
+const state = { game: null, moves: [], summary: null, ply: 0, orientation: "white", showBest: false, puzzles: [], puzzleIdx: 0 };
 
 /* ---------------- Lista de partidas ---------------- */
 async function loadGames() {
@@ -63,21 +64,47 @@ async function loadGames() {
 
 /* ---------------- Vista de partida ---------------- */
 async function openGame(id) {
-  const data = await api("/api/game?id=" + encodeURIComponent(id));
+  let data = await api("/api/game?id=" + encodeURIComponent(id));
   state.game = data.game;
   state.moves = data.moves;
   state.summary = data.summary;
   state.ply = 0;
   // Por defecto, orienta el tablero a tu perspectiva (tus piezas abajo).
   state.orientation = data.game.user_color === "black" ? "black" : "white";
-  $("#games-view").classList.add("hidden");
-  $("#game-view").classList.remove("hidden");
-  window.scrollTo(0, 0);
+  state.showBest = false;
+  showView("game");
+  $("#btn-show-best").classList.remove("active");
   renderGameHeader();
   renderMoveList();
   renderCoach();
-  updateActions();
   goTo(0);
+
+  // Análisis automático con Stockfish si la partida aún no está analizada.
+  if (!state.game.analyzed) {
+    setStatus("Analizando con Stockfish… (puede tardar ~1 min)");
+    try {
+      await api("/api/game/analyze?id=" + encodeURIComponent(id), { method: "POST" });
+      data = await api("/api/game?id=" + encodeURIComponent(id));
+      state.game = data.game;
+      state.moves = data.moves;
+      state.summary = data.summary;
+      renderGameHeader();
+      renderMoveList();
+      goTo(state.ply);
+    } catch (e) { setStatus("No se pudo analizar: " + e.message); return; }
+  }
+
+  // Comentario del entrenador automático (una sola vez; se cachea en la BBDD).
+  if (state.game.analyzed && !(state.summary && state.summary.coach_note)) {
+    setStatus("Generando comentario del entrenador…");
+    try {
+      const r = await api("/api/game/coach?id=" + encodeURIComponent(id), { method: "POST" });
+      state.summary = state.summary || {};
+      state.summary.coach_note = r.coach_note;
+      renderCoach();
+    } catch (e) { /* sin coach no pasa nada */ }
+  }
+  clearStatus();
 }
 
 function renderGameHeader() {
@@ -86,6 +113,8 @@ function renderGameHeader() {
   const resTxt = g.result === "win" ? "Victoria" : g.result === "lose" ? "Derrota" : "Tablas";
   let txt = `Jugaste con ${g.user_color === "white" ? "blancas" : "negras"} · ${resTxt}`;
   if (s) txt += ` · Precisión ${s.accuracy}%`;
+  const op = openingName(g);
+  if (op) txt += ` · ${op}`;
   $("#game-sub").textContent = txt;
 
   // Resumen de clasificaciones (solo tus jugadas), tipo informe de Chess.com.
@@ -102,6 +131,20 @@ function renderGameHeader() {
     chip.innerHTML = `<span style="color:${c.color};font-weight:800">${c.sym}</span> ${counts[k]} ${c.label}`;
     box.appendChild(chip);
   }
+  if (box.children.length) {
+    const lbl = document.createElement("span");
+    lbl.className = "counts-label";
+    lbl.textContent = "Tus jugadas:";
+    box.prepend(lbl);
+  }
+}
+
+function openingName(g) {
+  if (g.eco_url) {
+    const seg = g.eco_url.replace(/\/$/, "").split("/").pop();
+    if (seg) return seg.replace(/-/g, " ") + (g.eco ? ` (${g.eco})` : "");
+  }
+  return g.eco || "";
 }
 
 /* ---------------- Tablero ---------------- */
@@ -180,23 +223,30 @@ function goTo(ply) {
   renderEval(ply);
   renderMoveInfo(ply);
   highlightMoveList(ply);
-  drawBestArrow(ply);
+  drawArrows(ply);
+  $("#btn-move-coach").classList.toggle("hidden", ply < 1);
+  $("#move-coach").classList.add("hidden");
 }
 
-/* Flecha verde de la mejor jugada, solo cuando la jugada fue subóptima. */
-function drawBestArrow(ply) {
+/* Flechas: verde = lo que debiste jugar (en errores); azul = mejor jugada actual (botón). */
+function drawArrows(ply) {
   const svg = $("#arrows");
   svg.innerHTML = "";
-  if (ply < 1) return;
-  const m = state.moves[ply - 1];
-  if (!m.best_uci || m.best_uci === m.uci) return;
-  if (!["inaccuracy", "miss", "mistake", "blunder"].includes(m.classification)) return;
-  drawArrow(svg, m.best_uci.slice(0, 2), m.best_uci.slice(2, 4), ARROW_COLOR);
+  if (ply >= 1) {
+    const m = state.moves[ply - 1];
+    if (m.best_uci && m.best_uci !== m.uci &&
+        ["inaccuracy", "miss", "mistake", "blunder"].includes(m.classification)) {
+      drawArrow(svg, m.best_uci.slice(0, 2), m.best_uci.slice(2, 4), ARROW_COLOR);
+    }
+  }
+  if (state.showBest && ply < state.moves.length) {
+    const best = state.moves[ply].best_uci;
+    if (best) drawArrow(svg, best.slice(0, 2), best.slice(2, 4), BEST_COLOR);
+  }
 }
 
-function drawArrow(svg, fromSq, toSq, color) {
+function drawArrow(svg, fromSq, toSq, color, flip = state.orientation === "black") {
   const NS = "http://www.w3.org/2000/svg";
-  const flip = state.orientation === "black";
   const center = (s) => {
     let x = "abcdefgh".indexOf(s[0]) + 0.5;
     let y = 8 - +s[1] + 0.5;
@@ -232,14 +282,17 @@ function renderEval(ply) {
   const clamped = Math.max(-1000, Math.min(1000, cp));
   const whiteFrac = 1 / (1 + Math.exp(-0.00368 * clamped));
   $("#evalbar-white").style.height = whiteFrac * 100 + "%";
-  const val = cp / 100;
-  $("#eval-num").textContent = (val > 0 ? "+" : "") + val.toFixed(2);
+  let txt;
+  if (cp >= 2000) txt = "+M";          // mate o ventaja decisiva para las blancas
+  else if (cp <= -2000) txt = "−M";    // mate o ventaja decisiva para las negras
+  else { const v = cp / 100; txt = (v > 0 ? "+" : "") + v.toFixed(2); }
+  $("#eval-num").textContent = txt;
 }
 
 function renderMoveInfo(ply) {
   const info = $("#move-info");
   if (ply === 0) {
-    info.innerHTML = '<span class="muted">Posición inicial. Usa ▶ o las flechas ← → para avanzar.</span>';
+    info.innerHTML = "";
     return;
   }
   const m = state.moves[ply - 1];
@@ -287,7 +340,7 @@ function mlRow(numText) {
 
 function moveCell(m, i) {
   const cell = document.createElement("span");
-  cell.className = "ml-mv";
+  cell.className = "ml-mv" + (m.is_user_move ? " mine" : "");
   cell.dataset.ply = i + 1;
   const c = CLS[m.classification];
   cell.innerHTML = m.san + (c && c.sym ? ` <span class="mv-sym" style="color:${c.color}">${c.sym}</span>` : "");
@@ -336,12 +389,6 @@ function mdToHtml(md) {
   return html;
 }
 
-function updateActions() {
-  const analyzed = !!state.game.analyzed;
-  $("#btn-analyze").textContent = analyzed ? "Reanalizar" : "Analizar partida";
-  $("#btn-coach").classList.toggle("hidden", !analyzed);
-}
-
 /* ---------------- Utilidades de botones ---------------- */
 function setBusy(sel, txt) {
   const b = $(sel);
@@ -353,6 +400,15 @@ function unsetBusy(sel) {
   const b = $(sel);
   b.disabled = false;
   if (b.dataset.orig) b.textContent = b.dataset.orig;
+}
+
+function setStatus(txt) {
+  const s = $("#status");
+  s.textContent = txt;
+  s.classList.remove("hidden");
+}
+function clearStatus() {
+  $("#status").classList.add("hidden");
 }
 
 /* ---------------- Eventos ---------------- */
@@ -376,25 +432,27 @@ $("#btn-fetch").onclick = async () => {
   finally { unsetBusy("#btn-fetch"); }
 };
 
-$("#btn-analyze").onclick = async () => {
-  setBusy("#btn-analyze", "Analizando…");
+const moveCoachCache = {};
+$("#btn-move-coach").onclick = async () => {
+  if (state.ply < 1) return;
+  const key = state.game.id + ":" + state.ply;
+  const box = $("#move-coach");
+  if (moveCoachCache[key]) {
+    box.innerHTML = mdToHtml(moveCoachCache[key]);
+    box.classList.remove("hidden");
+    return;
+  }
+  setBusy("#btn-move-coach", "Pensando…");
   try {
-    await api("/api/game/analyze?id=" + encodeURIComponent(state.game.id) + "&depth=14", { method: "POST" });
-    await openGame(state.game.id);
-  } catch (e) { alert("Error al analizar: " + e.message); }
-  finally { unsetBusy("#btn-analyze"); }
-};
-
-$("#btn-coach").onclick = async () => {
-  setBusy("#btn-coach", "Pensando…");
-  try {
-    const r = await api("/api/game/coach?id=" + encodeURIComponent(state.game.id), { method: "POST" });
-    state.summary = state.summary || {};
-    state.summary.coach_note = r.coach_note;
-    renderCoach();
-    $("#coach-box").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const r = await api(
+      `/api/game/move-coach?id=${encodeURIComponent(state.game.id)}&ply=${state.ply}`,
+      { method: "POST" }
+    );
+    moveCoachCache[key] = r.explanation;
+    box.innerHTML = mdToHtml(r.explanation);
+    box.classList.remove("hidden");
   } catch (e) { alert("Error con el coach: " + e.message); }
-  finally { unsetBusy("#btn-coach"); }
+  finally { unsetBusy("#btn-move-coach"); }
 };
 
 $("#btn-start").onclick = () => goTo(0);
@@ -406,11 +464,190 @@ $("#btn-flip").onclick = () => {
   goTo(state.ply);
 };
 
+$("#btn-show-best").onclick = () => {
+  state.showBest = !state.showBest;
+  $("#btn-show-best").classList.toggle("active", state.showBest);
+  drawArrows(state.ply);
+};
+
+const ERR_SET = ["inaccuracy", "miss", "mistake", "blunder"];
+function gotoError(dir) {
+  const ms = state.moves;
+  if (dir > 0) {
+    for (let p = state.ply + 1; p <= ms.length; p++)
+      if (ms[p - 1].is_user_move && ERR_SET.includes(ms[p - 1].classification)) return goTo(p);
+  } else {
+    for (let p = state.ply - 1; p >= 1; p--)
+      if (ms[p - 1].is_user_move && ERR_SET.includes(ms[p - 1].classification)) return goTo(p);
+  }
+}
+$("#btn-prev-err").onclick = () => gotoError(-1);
+$("#btn-next-err").onclick = () => gotoError(1);
+
 document.addEventListener("keydown", (e) => {
   if ($("#game-view").classList.contains("hidden")) return;
   if (e.key === "ArrowLeft") goTo(state.ply - 1);
   if (e.key === "ArrowRight") goTo(state.ply + 1);
 });
+
+/* ---------------- Navegación / Estadísticas ---------------- */
+function showView(name) {
+  $("#games-view").classList.toggle("hidden", name !== "games");
+  $("#game-view").classList.toggle("hidden", name !== "game");
+  $("#stats-view").classList.toggle("hidden", name !== "stats");
+  $("#train-view").classList.toggle("hidden", name !== "train");
+  window.scrollTo(0, 0);
+}
+
+$("#brand").onclick = () => { showView("games"); loadGames(); };
+$("#btn-stats").onclick = () => { showView("stats"); loadStats(); };
+$("#btn-stats-back").onclick = () => { showView("games"); loadGames(); };
+$("#btn-train").onclick = () => { showView("train"); loadPuzzles(); };
+$("#btn-train-back").onclick = () => { showView("games"); loadGames(); };
+
+async function loadStats() {
+  const c = $("#stats-content");
+  c.innerHTML = '<p class="empty">Calculando…</p>';
+  try { renderStats(await api("/api/stats")); }
+  catch (e) { c.innerHTML = '<p class="empty">No se pudieron cargar las estadísticas.</p>'; }
+}
+
+function renderStats(d) {
+  const wld = (x) => `${x.wins}V / ${x.draws}T / ${x.losses}D`;
+  const pct = (x) => (x.games ? Math.round((100 * x.wins) / x.games) : 0);
+  const t = d.totals;
+  let h = "";
+
+  h += `<div class="stat-cards">
+    <div class="stat-card"><div class="sc-num">${t.games}</div><div class="sc-lbl">Partidas (${t.analyzed} analizadas)</div></div>
+    <div class="stat-card"><div class="sc-num">${t.accuracy ?? "—"}%</div><div class="sc-lbl">Precisión media</div></div>
+    <div class="stat-card"><div class="sc-num">${t.avg_acpl ?? "—"}</div><div class="sc-lbl">ACPL medio</div></div>
+    <div class="stat-card"><div class="sc-num">${pct(t)}%</div><div class="sc-lbl">${wld(t)}</div></div>
+  </div>`;
+
+  if (d.best_game) {
+    h += `<div class="stat-cards">
+      <div class="stat-card"><div class="sc-num" style="color:var(--good)">${d.best_game.accuracy}%</div><div class="sc-lbl">Mejor partida (vs ${d.best_game.opponent})</div></div>
+      <div class="stat-card"><div class="sc-num" style="color:var(--blunder)">${d.worst_game.accuracy}%</div><div class="sc-lbl">Peor partida (vs ${d.worst_game.opponent})</div></div>
+    </div>`;
+  }
+
+  h += `<h3>Rendimiento por color</h3><div class="stat-cards">
+    <div class="stat-card"><div class="sc-num">⚪ ${pct(d.by_color.white)}%</div><div class="sc-lbl">${wld(d.by_color.white)} · ${d.by_color.white.accuracy ?? "—"}%</div></div>
+    <div class="stat-card"><div class="sc-num">⚫ ${pct(d.by_color.black)}%</div><div class="sc-lbl">${wld(d.by_color.black)} · ${d.by_color.black.accuracy ?? "—"}%</div></div>
+  </div>`;
+
+  h += `<h3>Por modalidad</h3><div class="table-wrap"><table class="stat-table">
+    <tr><th>Modalidad</th><th>Partidas</th><th>V/T/D</th><th>Precisión</th></tr>`;
+  for (const [k, v] of Object.entries(d.by_time)) {
+    h += `<tr><td>${k}</td><td>${v.games}</td><td>${v.wins}/${v.draws}/${v.losses}</td><td>${v.accuracy ?? "—"}%</td></tr>`;
+  }
+  h += `</table></div>`;
+
+  h += `<h3>Tus jugadas (todas las partidas)</h3><div class="counts">`;
+  for (const k of CLS_ORDER) {
+    if (!d.classifications[k]) continue;
+    const c = CLS[k];
+    h += `<span class="chip" style="border-color:${c.color}"><span style="color:${c.color};font-weight:800">${c.sym}</span> ${d.classifications[k]} ${c.label}</span>`;
+  }
+  h += `</div>`;
+
+  const phLabel = { opening: "Apertura", middlegame: "Medio juego", endgame: "Final" };
+  h += `<h3>¿En qué fase fallas más?</h3><div class="table-wrap"><table class="stat-table">
+    <tr><th>Fase</th><th>Jugadas</th><th>ACPL</th><th>?!</th><th>?</th><th>??</th></tr>`;
+  for (const ph of ["opening", "middlegame", "endgame"]) {
+    const p = d.phases[ph];
+    h += `<tr><td>${phLabel[ph]}</td><td>${p.moves}</td><td>${p.acpl}</td><td>${p.inaccuracies}</td><td>${p.mistakes}</td><td style="color:${p.blunders ? "var(--blunder)" : "inherit"}">${p.blunders}</td></tr>`;
+  }
+  h += `</table></div>`;
+
+  h += `<h3>Tus aperturas</h3><div class="table-wrap"><table class="stat-table">
+    <tr><th>Apertura</th><th>Partidas</th><th>V/T/D</th><th>Precisión</th></tr>`;
+  for (const o of d.openings) {
+    h += `<tr><td class="op-name" title="${o.opening}">${o.opening}</td><td>${o.games}</td><td>${o.wins}/${o.draws}/${o.losses}</td><td>${o.accuracy ?? "—"}%</td></tr>`;
+  }
+  h += `</table></div>`;
+
+  $("#stats-content").innerHTML = h;
+}
+
+/* ---------------- Entrenamiento táctico ---------------- */
+async function loadPuzzles() {
+  const c = $("#train-content");
+  c.innerHTML = '<p class="empty">Cargando…</p>';
+  try {
+    state.puzzles = await api("/api/puzzles");
+    state.puzzleIdx = 0;
+    renderPuzzle();
+  } catch (e) {
+    c.innerHTML = '<p class="empty">No se pudieron cargar los ejercicios.</p>';
+  }
+}
+
+function buildBoardInto(boardEl, svgEl, fen, flip, arrowUci) {
+  const b = fenToBoard(fen);
+  boardEl.innerHTML = "";
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const r = flip ? 7 - row : row;
+      const f = flip ? 7 - col : col;
+      const sq = document.createElement("div");
+      sq.className = "square " + ((r + f) % 2 === 0 ? "light" : "dark");
+      const p = b[r][f];
+      if (p) {
+        const img = document.createElement("img");
+        img.className = "piece";
+        img.draggable = false;
+        img.src = PIECE_BASE + (p === p.toUpperCase() ? "w" : "b") + p.toUpperCase() + ".svg";
+        sq.appendChild(img);
+      }
+      if (row === 7) sq.appendChild(coordEl("file", "abcdefgh"[f]));
+      if (col === 0) sq.appendChild(coordEl("rank", 8 - r));
+      boardEl.appendChild(sq);
+    }
+  }
+  svgEl.innerHTML = "";
+  if (arrowUci) drawArrow(svgEl, arrowUci.slice(0, 2), arrowUci.slice(2, 4), BEST_COLOR, flip);
+}
+
+function renderPuzzle() {
+  const ps = state.puzzles;
+  const c = $("#train-content");
+  if (!ps || !ps.length) {
+    c.innerHTML = '<p class="empty">Aún no hay errores para entrenar. Abre y analiza más partidas.</p>';
+    return;
+  }
+  const i = state.puzzleIdx;
+  const p = ps[i];
+  const flip = p.side_to_move === "b";
+  const sideTxt = p.side_to_move === "w" ? "blancas" : "negras";
+  const label = (CLS[p.classification] || { label: p.classification }).label.toLowerCase();
+  c.innerHTML = `
+    <p class="sub">Ejercicio ${i + 1} / ${ps.length} · de tu partida vs ${p.opponent}</p>
+    <div class="board-row">
+      <div class="board-wrap">
+        <div id="train-board"></div>
+        <svg id="train-arrows" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+    <div class="move-info">Juegan <b>${sideTxt}</b>. ¿Cuál es la mejor jugada?
+      <span class="muted">(en la partida jugaste ${p.played_san}, un ${label})</span></div>
+    <div id="puzzle-solution"></div>
+    <div class="tools">
+      <button id="btn-solution" class="btn">Mostrar solución</button>
+      <button id="btn-next-puzzle" class="btn">Siguiente ▶</button>
+    </div>`;
+  buildBoardInto($("#train-board"), $("#train-arrows"), p.fen, flip, null);
+  $("#btn-solution").onclick = () => {
+    buildBoardInto($("#train-board"), $("#train-arrows"), p.fen, flip, p.solution_uci);
+    $("#puzzle-solution").innerHTML =
+      `<div class="move-coach">✅ La mejor jugada era <b>${p.solution_san}</b>.</div>`;
+  };
+  $("#btn-next-puzzle").onclick = () => {
+    state.puzzleIdx = (i + 1) % ps.length;
+    renderPuzzle();
+  };
+}
 
 /* ---------------- Init ---------------- */
 loadGames();

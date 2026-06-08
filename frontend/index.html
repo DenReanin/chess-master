@@ -12,8 +12,12 @@
 </head>
 <body>
   <header>
-    <div class="brand">♞ <span>Chess Master</span></div>
-    <button id="btn-fetch" class="btn">Descargar partidas</button>
+    <div class="brand" id="brand">♞ <span>Chess Master</span></div>
+    <div class="nav">
+      <button id="btn-stats" class="btn">📊 Estadísticas</button>
+      <button id="btn-train" class="btn">🎯 Entrenar</button>
+      <button id="btn-fetch" class="btn">Descargar</button>
+    </div>
   </header>
 
   <main>
@@ -29,31 +33,32 @@
       <h2 id="game-title"></h2>
       <p id="game-sub" class="sub"></p>
       <div id="game-counts" class="counts"></div>
+      <div id="status" class="status hidden"></div>
 
       <div class="board-row">
         <div id="evalbar"><div id="evalbar-white"></div></div>
-        <div>
-          <div class="board-wrap">
-            <div id="board"></div>
-            <svg id="arrows" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
-          </div>
-          <div class="controls">
-            <button id="btn-start" class="btn nav" title="Inicio">⏮</button>
-            <button id="btn-prev" class="btn nav" title="Anterior">◀</button>
-            <span id="eval-num" class="eval-num">+0.00</span>
-            <button id="btn-next" class="btn nav" title="Siguiente">▶</button>
-            <button id="btn-end" class="btn nav" title="Final">⏭</button>
-            <button id="btn-flip" class="btn nav" title="Girar tablero">⟲</button>
-          </div>
+        <div class="board-wrap">
+          <div id="board"></div>
+          <svg id="arrows" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
         </div>
+      </div>
+      <div class="controls">
+        <button id="btn-start" class="btn nav" title="Inicio">⏮</button>
+        <button id="btn-prev" class="btn nav" title="Anterior">◀</button>
+        <span id="eval-num" class="eval-num">+0.00</span>
+        <button id="btn-next" class="btn nav" title="Siguiente">▶</button>
+        <button id="btn-end" class="btn nav" title="Final">⏭</button>
+        <button id="btn-flip" class="btn nav" title="Girar tablero">⟲</button>
+      </div>
+      <div class="tools">
+        <button id="btn-show-best" class="btn small">💡 Mejor jugada</button>
+        <button id="btn-prev-err" class="btn small" title="Error anterior">⟨ Error</button>
+        <button id="btn-next-err" class="btn small" title="Siguiente error">Error ⟩</button>
       </div>
 
       <div id="move-info" class="move-info"></div>
-
-      <div class="actions">
-        <button id="btn-analyze" class="btn">Analizar partida</button>
-        <button id="btn-coach" class="btn accent hidden">Pedir comentario del coach</button>
-      </div>
+      <button id="btn-move-coach" class="btn explain hidden">🧑‍🏫 Explica esta jugada</button>
+      <div id="move-coach" class="move-coach hidden"></div>
 
       <div id="coach-box" class="coach-box hidden">
         <h3>🧑‍🏫 Tu entrenador</h3>
@@ -62,6 +67,21 @@
 
       <h3>Jugadas</h3>
       <div id="move-list" class="move-list"></div>
+    </section>
+
+    <!-- Estadísticas (Fase 5) -->
+    <section id="stats-view" class="hidden">
+      <button id="btn-stats-back" class="btn ghost">← Volver</button>
+      <h2>📊 Estadísticas</h2>
+      <div id="stats-content"></div>
+    </section>
+
+    <!-- Entrenamiento táctico (Fase 5) -->
+    <section id="train-view" class="hidden">
+      <button id="btn-train-back" class="btn ghost">← Volver</button>
+      <h2>🎯 Entrenamiento táctico</h2>
+      <p class="sub">Posiciones de tus propios errores. Intenta encontrar la mejor jugada antes de ver la solución.</p>
+      <div id="train-content"></div>
     </section>
   </main>
 

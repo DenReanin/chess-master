@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from . import config, db
 from .coach import gemini
 from .engine import analyzer
+from .features import puzzles, stats
 from .ingest import chesscom
 
 app = FastAPI(title="chess-master API", version="0.1")
@@ -123,6 +124,34 @@ def coach_game(id: str = Query(...)):
         db.save_coach_note(conn, id, note)
         conn.commit()
     return {"coach_note": note}
+
+
+@app.post("/api/game/move-coach")
+def move_coach(id: str = Query(...), ply: int = Query(...)):
+    """Explicación del entrenador para UNA jugada concreta."""
+    with db.connect() as conn:
+        game = conn.execute("SELECT * FROM games WHERE id = ?", (id,)).fetchone()
+        if not game:
+            raise HTTPException(404, "Partida no encontrada")
+        move = conn.execute(
+            "SELECT * FROM moves WHERE game_id = ? AND ply = ?", (id, ply)
+        ).fetchone()
+        if not move:
+            raise HTTPException(404, "Jugada no encontrada (¿está analizada la partida?)")
+        text = gemini.coach_move(dict(game), dict(move))
+    return {"explanation": text}
+
+
+@app.get("/api/stats")
+def get_stats():
+    """Estadísticas agregadas entre partidas (patrones, fases y aperturas)."""
+    return stats.compute_stats()
+
+
+@app.get("/api/puzzles")
+def list_puzzles(limit: int = 20):
+    """Ejercicios tácticos generados desde tus propios errores."""
+    return puzzles.get_puzzles(limit)
 
 
 # Servir el frontend (PWA). Debe ir al final: las rutas /api/* tienen prioridad.

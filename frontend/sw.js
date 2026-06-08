@@ -1,6 +1,6 @@
 // Service worker: estrategia network-first (los cambios se ven al instante
 // estando online) con respaldo en caché para uso sin conexión.
-const CACHE = "chessmaster-v2";
+const CACHE = "chessmaster-v3";
 const SHELL = [
   "/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/icon.svg",
   "/pieces/cburnett/wK.svg", "/pieces/cburnett/wQ.svg", "/pieces/cburnett/wR.svg",

@@ -16,6 +16,7 @@ import chess.engine
 import chess.pgn
 
 from .. import config
+from . import openings
 
 WINPROB_K = 0.00368208   # modelo logístico de probabilidad de victoria (Lichess)
 CAP = 2000               # tope de centipawns (evita overflow y el dominio de los mates)
@@ -89,14 +90,14 @@ def _classify(i, mover_white, top1, top2, best_moves, moves, board):
     is_best = best_moves[i] is not None and moves[i] == best_moves[i]
     gap = cp_best - cp_second           # cuánto supera la mejor a la segunda (>=0)
 
-    # Categoría base por pérdida de probabilidad de victoria.
-    if wp_drop >= 0.30:
+    # Categoría base por pérdida de probabilidad de victoria (umbrales configurables).
+    if wp_drop >= config.WINPROB_BLUNDER:
         base = "blunder"
-    elif wp_drop >= 0.20:
+    elif wp_drop >= config.WINPROB_MISTAKE:
         base = "mistake"
-    elif wp_drop >= 0.10:
+    elif wp_drop >= config.WINPROB_INACCURACY:
         base = "inaccuracy"
-    elif wp_drop >= 0.04:
+    elif wp_drop >= config.WINPROB_GOOD:
         base = "good"
     elif not is_best:
         base = "excellent"
@@ -126,11 +127,16 @@ def _classify(i, mover_white, top1, top2, best_moves, moves, board):
         cls = "brilliant"
     elif is_best and gap >= GREAT_GAP and wp_after >= 0.45:
         cls = "great"
-    elif i < BOOK_PLIES and wp_drop < 0.04:
-        cls = "book"
     else:
         cls = base
     return cls, wp_before, wp_after, cp_loss
+
+
+def _is_book(i: int, epd: str, wp_drop: float) -> bool:
+    """¿Es teoría de apertura? Usa la base de Lichess; si no, heurística de respaldo."""
+    if openings.available():
+        return openings.is_book_position(epd)
+    return i < BOOK_PLIES and wp_drop < 0.04
 
 
 def analyze_pgn(pgn_text: str, user_color: str | None, depth: int | None = None) -> dict:
@@ -169,6 +175,10 @@ def analyze_pgn(pgn_text: str, user_color: str | None, depth: int | None = None)
         cls, wp_before, wp_after, cp_loss = _classify(
             i, mover_white, top1, top2, best_moves, moves, board
         )
+        if cls in ("best", "excellent", "good"):
+            epd = " ".join(fens[i + 1].split()[:4])
+            if _is_book(i, epd, wp_before - wp_after):
+                cls = "book"
         best_mv = best_moves[i]
         color = "white" if mover_white else "black"
         results.append({
