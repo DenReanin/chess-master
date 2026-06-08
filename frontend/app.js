@@ -43,6 +43,12 @@ async function loadGames() {
     return;
   }
   list.innerHTML = "";
+  const pending = games.filter((g) => !g.analyzed).length;
+  const actions = $("#games-actions");
+  actions.innerHTML = pending
+    ? `<button id="btn-analyze-all" class="btn">Analizar ${pending} pendientes</button> <span id="batch-status" class="muted"></span>`
+    : "";
+  if (pending) $("#btn-analyze-all").onclick = analyzeAllPending;
   for (const g of games) {
     const opp = g.user_color === "white" ? g.black : g.white;
     const youColor = g.user_color === "white" ? "⚪" : "⚫";
@@ -60,6 +66,21 @@ async function loadGames() {
     el.onclick = () => openGame(g.id);
     list.appendChild(el);
   }
+}
+
+async function analyzeAllPending() {
+  const btn = $("#btn-analyze-all");
+  const status = $("#batch-status");
+  if (btn) btn.disabled = true;
+  const games = await api("/api/games");
+  const pend = games.filter((g) => !g.analyzed);
+  for (let i = 0; i < pend.length; i++) {
+    if (status) status.textContent = `Analizando ${i + 1}/${pend.length}… (no cierres esta pestaña)`;
+    try { await api("/api/game/analyze?id=" + encodeURIComponent(pend[i].id), { method: "POST" }); }
+    catch (e) { /* salta la que falle y continúa */ }
+  }
+  if (status) status.textContent = "¡Listo!";
+  loadGames();
 }
 
 /* ---------------- Vista de partida ---------------- */
@@ -224,6 +245,7 @@ function goTo(ply) {
   renderMoveInfo(ply);
   highlightMoveList(ply);
   drawArrows(ply);
+  renderEvalGraph();
   $("#btn-move-coach").classList.toggle("hidden", ply < 1);
   $("#move-coach").classList.add("hidden");
 }
@@ -287,6 +309,29 @@ function renderEval(ply) {
   else if (cp <= -2000) txt = "−M";    // mate o ventaja decisiva para las negras
   else { const v = cp / 100; txt = (v > 0 ? "+" : "") + v.toFixed(2); }
   $("#eval-num").textContent = txt;
+}
+
+/* Gráfica de evaluación de toda la partida (clic para saltar a una jugada). */
+function renderEvalGraph() {
+  const wrap = $("#eval-graph-wrap");
+  const n = state.moves.length;
+  if (!n || !state.game || !state.game.analyzed) { wrap.innerHTML = ""; return; }
+  const W = 100, H = 32, mid = H / 2;
+  const yOf = (cp) => mid - (Math.max(-1000, Math.min(1000, cp || 0)) / 1000) * mid;
+  const xOf = (ply) => (ply / n) * W;
+  let pts = `0,${mid.toFixed(2)}`;
+  state.moves.forEach((m, i) => { pts += ` ${xOf(i + 1).toFixed(2)},${yOf(m.eval_cp).toFixed(2)}`; });
+  const markX = xOf(state.ply).toFixed(2);
+  wrap.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="eval-graph">` +
+    `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" class="eg-mid"/>` +
+    `<polyline points="${pts}" class="eg-line"/>` +
+    `<line x1="${markX}" y1="0" x2="${markX}" y2="${H}" class="eg-mark"/>` +
+    `</svg>`;
+  wrap.querySelector("svg").onclick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    goTo(Math.round(((e.clientX - rect.left) / rect.width) * n));
+  };
 }
 
 function renderMoveInfo(ply) {
