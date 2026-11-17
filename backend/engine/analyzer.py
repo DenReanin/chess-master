@@ -57,6 +57,109 @@ def _material(board: chess.Board) -> int:
     return total
 
 
+PIECE_CP = {
+    chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900,
+}
+_CENTER_SQS = (chess.D4, chess.E4, chess.D5, chess.E5)
+_EXT_CENTER_SQS = (
+    chess.C3, chess.D3, chess.E3, chess.F3,
+    chess.C4, chess.F4, chess.C5, chess.F5,
+    chess.C6, chess.D6, chess.E6, chess.F6,
+)
+
+
+def _static_eval_white_cp(board: chess.Board) -> int:
+    """Evaluación posicional rápida en centipawns desde la perspectiva de las blancas."""
+    if board.is_game_over():
+        return _terminal_eval(board)
+
+    score = 0
+    for sq, piece in board.piece_map().items():
+        val = PIECE_CP.get(piece.piece_type, 0)
+        bonus = 0
+        if piece.piece_type in (chess.PAWN, chess.KNIGHT, chess.BISHOP):
+            if sq in _CENTER_SQS:
+                bonus += 22
+            elif sq in _EXT_CENTER_SQS:
+                bonus += 10
+        if piece.piece_type == chess.PAWN:
+            rank = chess.square_rank(sq)
+            adv = rank - 1 if piece.color == chess.WHITE else 6 - rank
+            bonus += max(0, adv) * 4
+        if piece.color == chess.WHITE:
+            score += val + bonus
+        else:
+            score -= val + bonus
+
+    if board.is_check():
+        score += -25 if board.turn == chess.WHITE else 25
+    return _cap(score)
+
+
+def _quick_score_after_move(board: chess.Board) -> int:
+    """Evalúa tras realizar una jugada teniendo en cuenta respuestas tácticas inmediatas del rival."""
+    if board.is_game_over():
+        return _terminal_eval(board)
+
+    # Consideramos las capturas/jaques del rival para no ignorar piezas colgadas ni mates en 1.
+    tactical_replies = [
+        mv for mv in board.legal_moves
+        if board.is_capture(mv) or board.gives_check(mv)
+    ]
+    if not tactical_replies:
+        return _static_eval_white_cp(board)
+
+    tactical_replies.sort(
+        key=lambda mv: (
+            board.is_capture(mv),
+            PIECE_CP.get(board.piece_type_at(mv.to_square) or chess.PAWN, 0),
+        ),
+        reverse=True,
+    )
+    maximizing = board.turn == chess.WHITE
+    best_reply_eval = _static_eval_white_cp(board)
+    for reply in tactical_replies[:8]:
+        board.push(reply)
+        ev = _static_eval_white_cp(board)
+        board.pop()
+        if maximizing:
+            if ev > best_reply_eval:
+                best_reply_eval = ev
+        else:
+            if ev < best_reply_eval:
+                best_reply_eval = ev
+    return best_reply_eval
+
+
+def _analyse_positions_heuristic(fens: list[str]):
+    """Motor de respaldo en Python puro (sin binario Stockfish) usando python-chess."""
+    top1, top2, best = [], [], []
+    for fen in fens:
+        bd = chess.Board(fen)
+        if bd.is_game_over():
+            ev = _terminal_eval(bd)
+            top1.append(ev)
+            top2.append(ev)
+            best.append(None)
+            continue
+
+        maximizing = bd.turn == chess.WHITE
+        scored: list[tuple[int, chess.Move]] = []
+        for mv in bd.legal_moves:
+            bd.push(mv)
+            ev = _quick_score_after_move(bd)
+            bd.pop()
+            scored.append((ev, mv))
+
+        scored.sort(key=lambda item: item[0], reverse=maximizing)
+        s1, mv1 = scored[0]
+        s2 = scored[1][0] if len(scored) > 1 else s1
+        top1.append(_cap(s1))
+        top2.append(_cap(s2))
+        best.append(mv1)
+    return top1, top2, best
+
+
 def _analyse_positions(engine, fens, depth):
     """Devuelve, por posición: eval de la mejor, eval de la 2ª mejor, y la mejor jugada."""
     limit = chess.engine.Limit(depth=depth)
@@ -141,11 +244,7 @@ def _is_book(i: int, epd: str, wp_drop: float) -> bool:
 
 def analyze_pgn(pgn_text: str, user_color: str | None, depth: int | None = None) -> dict:
     depth = depth or config.ANALYSIS_DEPTH
-    if not config.STOCKFISH_PATH:
-        raise RuntimeError(
-            "No se encontró Stockfish. Descárgalo en la carpeta stockfish/ "
-            "o define STOCKFISH_PATH en el .env."
-        )
+    sf_path = config.find_stockfish()
 
     game = chess.pgn.read_game(io.StringIO(pgn_text))
     if game is None:
@@ -158,15 +257,18 @@ def analyze_pgn(pgn_text: str, user_color: str | None, depth: int | None = None)
         board.push(mv)
         fens.append(board.fen())
 
-    engine = chess.engine.SimpleEngine.popen_uci(config.STOCKFISH_PATH)
-    try:
+    if sf_path:
+        engine = chess.engine.SimpleEngine.popen_uci(sf_path)
         try:
-            engine.configure({"Threads": 2, "Hash": 256})
-        except Exception:
-            pass
-        top1, top2, best_moves = _analyse_positions(engine, fens, depth)
-    finally:
-        engine.quit()
+            try:
+                engine.configure({"Threads": 2, "Hash": 256})
+            except Exception:
+                pass
+            top1, top2, best_moves = _analyse_positions(engine, fens, depth)
+        finally:
+            engine.quit()
+    else:
+        top1, top2, best_moves = _analyse_positions_heuristic(fens)
 
     results = []
     board = game.board()

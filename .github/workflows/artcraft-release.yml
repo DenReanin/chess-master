@@ -1,0 +1,41 @@
+name: ArtCraft Release (Chess Master)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias y ejecutar tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python probar_chessmaster.py
+
+      - name: Empaquetar para ArtCraft Hub
+        run: |
+          tar --exclude='.git' --exclude='.venv' --exclude='__pycache__' --exclude='data/*.db' \
+            -czf /tmp/chess-master-linux-x86_64.tar.gz .
+          mv /tmp/chess-master-linux-x86_64.tar.gz ./chess-master-linux-x86_64.tar.gz
+          sha256sum chess-master-linux-x86_64.tar.gz > chess-master-linux-x86_64.tar.gz.sha256
+
+      - name: Publicar GitHub Release automática desde main
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v1.0.${{ github.run_number }}"
+          name: "Chess Master v1.0.${{ github.run_number }} (${{ github.sha }})"
+          generate_release_notes: true
+          files: |
+            chess-master-linux-x86_64.tar.gz
+            chess-master-linux-x86_64.tar.gz.sha256

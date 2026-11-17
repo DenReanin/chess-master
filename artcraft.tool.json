@@ -1,0 +1,24 @@
+{
+  "$schema": "artcraft.tool.schema.json",
+  "id": "chess-master",
+  "name": "Chess Master",
+  "abbr": "CM",
+  "tagline": "Analizador táctico de partidas Chess.com/PGN con Stockfish o motor local, coach IA/offline y puzzles interactivos",
+  "category": "Ajedrez & IA",
+  "brandColor": "#26C2A3",
+  "icon": "cpu",
+  "repo": "DenReanin/chess-master",
+  "branch": "main",
+  "private": true,
+  "updateStrategy": {
+    "mode": "branch-tarball",
+    "postInstall": "[ -f run-chess-master.sh ] || cp \"$ARTCRAFT_HUB_ROOT/templates/repos/chess-master/run-chess-master.sh\" ./run-chess-master.sh; chmod +x ./run-chess-master.sh; bash ./run-chess-master.sh --setup-only",
+    "requireMainCheckSuccess": false
+  },
+  "launch": {
+    "executable": "run-chess-master.sh",
+    "args": [],
+    "workingDir": "bin",
+    "runInTerminal": false
+  }
+}

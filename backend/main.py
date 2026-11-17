@@ -8,6 +8,11 @@ Con --host 0.0.0.0 podrás abrirlo desde el móvil en la misma WiFi:
 """
 from __future__ import annotations
 
+import hashlib
+import io
+import time
+
+import chess.pgn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +24,7 @@ from .engine import analyzer
 from .features import puzzles, stats
 from .ingest import chesscom
 
-app = FastAPI(title="chess-master API", version="0.1")
+app = FastAPI(title="chess-master API", version="0.2")
 
 # El frontend (móvil u otro origen) necesita poder llamar a esta API.
 app.add_middleware(
@@ -34,10 +39,14 @@ db.init_db()
 
 @app.get("/api/health")
 def health():
+    sf = config.find_stockfish()
+    has_gemini = bool((config.GEMINI_API_KEY or "").strip())
     return {
         "ok": True,
-        "stockfish": bool(config.STOCKFISH_PATH),
-        "gemini": bool(config.GEMINI_API_KEY),
+        "stockfish": bool(sf),
+        "engine": "stockfish" if sf else "heuristic-chess",
+        "gemini": has_gemini,
+        "coach": "gemini" if has_gemini else "offline-coach",
         "user": config.CHESSCOM_USERNAME,
     }
 
@@ -80,15 +89,100 @@ def get_game(id: str = Query(..., description="URL de la partida en Chess.com"))
 class FetchReq(BaseModel):
     months: int | None = None
     max: int | None = None
+    username: str | None = None
 
 
 @app.post("/api/fetch")
 def fetch(req: FetchReq):
     """Descarga partidas nuevas de Chess.com."""
-    n = chesscom.fetch_user_games(
-        config.CHESSCOM_USERNAME, max_months=req.months, max_games=req.max
-    )
-    return {"saved": n}
+    user = (req.username or config.CHESSCOM_USERNAME or "").strip()
+    if not user:
+        raise HTTPException(400, "Indica tu usuario de Chess.com o configúralo en .env")
+    config.set_chesscom_username(user)
+    n = chesscom.fetch_user_games(user, max_months=req.months, max_games=req.max)
+    return {"saved": n, "user": user}
+
+
+_DEMO_PGN = """[Event "Partida Demo Táctica"]
+[Site "ChessMaster Local"]
+[Date "2026.05.01"]
+[White "TuUsuario"]
+[Black "RivalClub"]
+[Result "0-1"]
+[ECO "C50"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. Bg5 h6 7. Bh4 g5 8. Bg3 Bg4
+9. h3 Bh5 10. Qe2 Nd4 11. Qd1 Nxf3+ 12. gxf3 Bg6 13. Qd2 Nh5 14. O-O-O Nxg3
+15. fxg3 c6 16. Kb1 b5 17. Bb3 a5 18. Qc1 Qb6 0-1
+"""
+
+
+def _store_pgn_game(pgn_text: str, user_color: str = "white", username: str = "Jugador") -> str:
+    pgn_clean = (pgn_text or "").strip()
+    if not pgn_clean:
+        raise HTTPException(400, "El PGN no puede estar vacío.")
+    parsed = chess.pgn.read_game(io.StringIO(pgn_clean))
+    if parsed is None or not list(parsed.mainline_moves()):
+        raise HTTPException(400, "PGN inválido o sin jugadas.")
+
+    color = "black" if str(user_color).lower().startswith("b") else "white"
+    headers = parsed.headers
+    white_name = headers.get("White") or (username if color == "white" else "Rival")
+    black_name = headers.get("Black") or (username if color == "black" else "Rival")
+    pgn_res = headers.get("Result", "*")
+    if pgn_res == "1-0":
+        result = "win" if color == "white" else "lose"
+    elif pgn_res == "0-1":
+        result = "win" if color == "black" else "lose"
+    elif pgn_res == "1/2-1/2":
+        result = "draw"
+    else:
+        result = "draw"
+
+    game_hash = hashlib.sha1(pgn_clean.encode("utf-8")).hexdigest()[:12]
+    game_id = f"local:{game_hash}"
+    norm = {
+        "id": game_id,
+        "end_time": int(time.time()),
+        "time_class": headers.get("TimeControl") or "rapid",
+        "time_control": headers.get("TimeControl") or "600",
+        "rated": 0,
+        "rules": "chess",
+        "eco": headers.get("ECO") or None,
+        "eco_url": None,
+        "white": white_name,
+        "black": black_name,
+        "white_rating": int(headers["WhiteElo"]) if headers.get("WhiteElo", "").isdigit() else None,
+        "black_rating": int(headers["BlackElo"]) if headers.get("BlackElo", "").isdigit() else None,
+        "result": result,
+        "user_color": color,
+        "pgn": pgn_clean,
+    }
+    db.init_db()
+    with db.connect() as conn:
+        db.upsert_game(conn, norm)
+        conn.commit()
+    return game_id
+
+
+class ImportPgnReq(BaseModel):
+    pgn: str
+    user_color: str = "white"
+    username: str = "Jugador"
+
+
+@app.post("/api/games/import-pgn")
+def import_pgn(req: ImportPgnReq):
+    """Importa una partida en formato PGN directamente desde la web."""
+    gid = _store_pgn_game(req.pgn, user_color=req.user_color, username=req.username)
+    return {"saved": 1, "id": gid}
+
+
+@app.post("/api/games/demo")
+def create_demo_game():
+    """Carga una partida táctica de demostración lista para analizar sin internet."""
+    gid = _store_pgn_game(_DEMO_PGN, user_color="white", username="TuUsuario")
+    return {"saved": 1, "id": gid}
 
 
 @app.post("/api/game/analyze")

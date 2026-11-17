@@ -190,3 +190,31 @@ h3 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); }
 .stat-table th { color: var(--muted); font-weight: 600; }
 .stat-table th:first-child, .stat-table td.op-name { text-align: left; }
 .op-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Barra de usuario / importación PGN */
+.fetch-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.fetch-bar input {
+  flex: 1 1 200px; min-width: 0;
+  background: var(--panel); color: var(--text); border: 1px solid #ffffff1c;
+  border-radius: 8px; padding: 9px 12px; font-size: 14px; outline: none;
+}
+.fetch-bar input:focus { border-color: var(--accent); }
+.pgn-box {
+  background: var(--panel); border: 1px solid #ffffff1c; border-radius: 10px;
+  padding: 12px; margin-bottom: 14px;
+}
+.pgn-box textarea {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid #ffffff1c;
+  border-radius: 8px; padding: 10px; font-family: monospace; font-size: 13px; resize: vertical;
+}
+.pgn-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; font-size: 14px; }
+.pgn-controls select {
+  margin-left: 6px; background: var(--panel2); color: var(--text);
+  border: 1px solid #ffffff1c; border-radius: 6px; padding: 5px 8px;
+}
+
+/* Entrenamiento táctico interactivo */
+#train-board .square { cursor: pointer; }
+.square.selected-sq { box-shadow: inset 0 0 0 3px #3b82f6, inset 0 0 0 9999px rgba(59, 130, 246, .28); }
+.good-msg { border-left-color: var(--good); background: #223529; }
+.bad-msg { border-left-color: var(--blunder); background: #382325; }

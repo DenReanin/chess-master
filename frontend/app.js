@@ -28,7 +28,25 @@ const CLS = {
 const CLS_ORDER = ["brilliant", "great", "best", "excellent", "good", "book",
                    "inaccuracy", "miss", "mistake", "blunder"];
 
-const state = { game: null, moves: [], summary: null, ply: 0, orientation: "white", showBest: false, puzzles: [], puzzleIdx: 0 };
+const state = {
+  game: null, moves: [], summary: null, ply: 0, orientation: "white", showBest: false,
+  puzzles: [], puzzleIdx: 0, puzzleSelectedSq: null, puzzleSolved: false, puzzleAttemptedCurrent: false,
+  puzzleScore: { solved: 0, attempted: 0 },
+};
+
+async function loadHealth() {
+  try {
+    const h = await api("/api/health");
+    const inp = $("#input-user");
+    if (inp && h.user && !inp.value) inp.value = h.user;
+    const banner = $("#engine-banner");
+    if (banner) {
+      const eng = h.stockfish ? "Stockfish UCI" : "Motor heurístico local (python-chess)";
+      const coach = h.gemini ? "Gemini IA" : "Entrenador offline local";
+      banner.textContent = `Motor activo: ${eng} · Coach: ${coach}`;
+    }
+  } catch (e) { /* silencioso si aún arranca */ }
+}
 
 /* ---------------- Lista de partidas ---------------- */
 async function loadGames() {
@@ -463,19 +481,68 @@ $("#btn-back").onclick = () => {
   loadGames();
 };
 
-$("#btn-fetch").onclick = async () => {
-  setBusy("#btn-fetch", "Descargando…");
+async function fetchGamesFromChessCom(triggerBtnSel) {
+  const user = ($("#input-user")?.value || "").trim();
+  setBusy(triggerBtnSel, "Descargando…");
   try {
     const r = await api("/api/fetch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ months: 1 }),
+      body: JSON.stringify({ months: 1, username: user || undefined }),
     });
     await loadGames();
-    alert("Guardadas " + r.saved + " partidas.");
-  } catch (e) { alert("Error al descargar: " + e.message); }
-  finally { unsetBusy("#btn-fetch"); }
-};
+    alert("Guardadas " + r.saved + " partidas de " + (r.user || "Chess.com") + ".");
+  } catch (e) {
+    alert("Error al descargar: " + e.message);
+  } finally {
+    unsetBusy(triggerBtnSel);
+  }
+}
+
+$("#btn-fetch").onclick = () => fetchGamesFromChessCom("#btn-fetch");
+if ($("#btn-fetch-user")) {
+  $("#btn-fetch-user").onclick = () => fetchGamesFromChessCom("#btn-fetch-user");
+}
+if ($("#btn-import-pgn")) {
+  $("#btn-import-pgn").onclick = () => $("#pgn-modal").classList.toggle("hidden");
+  $("#btn-pgn-cancel").onclick = () => $("#pgn-modal").classList.add("hidden");
+  $("#btn-pgn-submit").onclick = async () => {
+    const pgn = ($("#input-pgn").value || "").trim();
+    const user_color = $("#select-pgn-color").value;
+    const username = ($("#input-user")?.value || "Jugador").trim();
+    if (!pgn) return alert("Pega primero un PGN.");
+    setBusy("#btn-pgn-submit", "Importando…");
+    try {
+      const r = await api("/api/games/import-pgn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pgn, user_color, username }),
+      });
+      $("#input-pgn").value = "";
+      $("#pgn-modal").classList.add("hidden");
+      await loadGames();
+      if (r.id) openGame(r.id);
+    } catch (e) {
+      alert("PGN inválido: " + e.message);
+    } finally {
+      unsetBusy("#btn-pgn-submit");
+    }
+  };
+}
+if ($("#btn-demo-game")) {
+  $("#btn-demo-game").onclick = async () => {
+    setBusy("#btn-demo-game", "Cargando…");
+    try {
+      const r = await api("/api/games/demo", { method: "POST" });
+      await loadGames();
+      if (r.id) openGame(r.id);
+    } catch (e) {
+      alert("No se pudo crear la partida demo: " + e.message);
+    } finally {
+      unsetBusy("#btn-demo-game");
+    }
+  };
+}
 
 const moveCoachCache = {};
 $("#btn-move-coach").onclick = async () => {
@@ -623,21 +690,27 @@ async function loadPuzzles() {
   try {
     state.puzzles = await api("/api/puzzles");
     state.puzzleIdx = 0;
+    state.puzzleSelectedSq = null;
+    state.puzzleSolved = false;
+    state.puzzleAttemptedCurrent = false;
     renderPuzzle();
   } catch (e) {
     c.innerHTML = '<p class="empty">No se pudieron cargar los ejercicios.</p>';
   }
 }
 
-function buildBoardInto(boardEl, svgEl, fen, flip, arrowUci) {
+function buildBoardInto(boardEl, svgEl, fen, flip, arrowUci, opts = {}) {
   const b = fenToBoard(fen);
   boardEl.innerHTML = "";
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const r = flip ? 7 - row : row;
       const f = flip ? 7 - col : col;
+      const sqNameStr = sqName(f, r);
       const sq = document.createElement("div");
       sq.className = "square " + ((r + f) % 2 === 0 ? "light" : "dark");
+      if (opts.selectedSq === sqNameStr) sq.classList.add("selected-sq");
+      sq.dataset.sq = sqNameStr;
       const p = b[r][f];
       if (p) {
         const img = document.createElement("img");
@@ -648,6 +721,9 @@ function buildBoardInto(boardEl, svgEl, fen, flip, arrowUci) {
       }
       if (row === 7) sq.appendChild(coordEl("file", "abcdefgh"[f]));
       if (col === 0) sq.appendChild(coordEl("rank", 8 - r));
+      if (opts.onSquareClick) {
+        sq.onclick = () => opts.onSquareClick(sqNameStr, p);
+      }
       boardEl.appendChild(sq);
     }
   }
@@ -667,34 +743,93 @@ function renderPuzzle() {
   const flip = p.side_to_move === "b";
   const sideTxt = p.side_to_move === "w" ? "blancas" : "negras";
   const label = (CLS[p.classification] || { label: p.classification }).label.toLowerCase();
+  const score = state.puzzleScore;
   c.innerHTML = `
-    <p class="sub">Ejercicio ${i + 1} / ${ps.length} · de tu partida vs ${p.opponent}</p>
+    <p class="sub">Ejercicio ${i + 1} / ${ps.length} · de tu partida vs ${p.opponent} · <b id="train-score">Aciertos: ${score.solved} / ${score.attempted}</b></p>
     <div class="board-row">
       <div class="board-wrap">
         <div id="train-board"></div>
         <svg id="train-arrows" viewBox="0 0 8 8" preserveAspectRatio="none"></svg>
       </div>
     </div>
-    <div class="move-info">Juegan <b>${sideTxt}</b>. ¿Cuál es la mejor jugada?
+    <div class="move-info">Juegan <b>${sideTxt}</b>. Haz clic en pieza origen y casilla destino para encontrar la mejor jugada.
       <span class="muted">(en la partida jugaste ${p.played_san}, un ${label})</span></div>
     <div id="puzzle-solution"></div>
     <div class="tools">
       <button id="btn-solution" class="btn">Mostrar solución</button>
       <button id="btn-next-puzzle" class="btn">Siguiente ▶</button>
     </div>`;
-  buildBoardInto($("#train-board"), $("#train-arrows"), p.fen, flip, null);
+
+  const isFriendly = (piece) =>
+    !!piece && (p.side_to_move === "w" ? piece === piece.toUpperCase() : piece === piece.toLowerCase());
+
+  const drawPuzzleBoard = (arrowUci = null) => {
+    buildBoardInto($("#train-board"), $("#train-arrows"), p.fen, flip, arrowUci, {
+      selectedSq: state.puzzleSelectedSq,
+      onSquareClick: (sq, piece) => {
+        if (state.puzzleSolved) return;
+        if (!state.puzzleSelectedSq) {
+          if (isFriendly(piece)) {
+            state.puzzleSelectedSq = sq;
+            drawPuzzleBoard();
+          }
+          return;
+        }
+        if (state.puzzleSelectedSq === sq) {
+          state.puzzleSelectedSq = null;
+          drawPuzzleBoard();
+          return;
+        }
+        if (isFriendly(piece)) {
+          state.puzzleSelectedSq = sq;
+          drawPuzzleBoard();
+          return;
+        }
+        const fromSq = state.puzzleSelectedSq;
+        const attempt = fromSq + sq;
+        const target = (p.solution_uci || "").slice(0, 4);
+        if (!state.puzzleAttemptedCurrent) {
+          state.puzzleAttemptedCurrent = true;
+          state.puzzleScore.attempted += 1;
+        }
+        if (attempt === target) {
+          state.puzzleSolved = true;
+          state.puzzleSelectedSq = null;
+          state.puzzleScore.solved += 1;
+          $("#train-score").textContent = `Aciertos: ${state.puzzleScore.solved} / ${state.puzzleScore.attempted}`;
+          drawPuzzleBoard(p.solution_uci);
+          $("#puzzle-solution").innerHTML =
+            `<div class="move-coach good-msg">✅ ¡Correcto! La mejor jugada era <b>${p.solution_san}</b>.</div>`;
+        } else {
+          state.puzzleSelectedSq = null;
+          drawPuzzleBoard();
+          $("#train-score").textContent = `Aciertos: ${state.puzzleScore.solved} / ${state.puzzleScore.attempted}`;
+          $("#puzzle-solution").innerHTML =
+            `<div class="move-coach bad-msg">❌ Jugada ${fromSq}→${sq} no es la mejor. ¡Prueba otra o pulsa Mostrar solución!</div>`;
+        }
+      },
+    });
+  };
+
+  drawPuzzleBoard();
   $("#btn-solution").onclick = () => {
-    buildBoardInto($("#train-board"), $("#train-arrows"), p.fen, flip, p.solution_uci);
+    state.puzzleSolved = true;
+    state.puzzleSelectedSq = null;
+    drawPuzzleBoard(p.solution_uci);
     $("#puzzle-solution").innerHTML =
       `<div class="move-coach">✅ La mejor jugada era <b>${p.solution_san}</b>.</div>`;
   };
   $("#btn-next-puzzle").onclick = () => {
     state.puzzleIdx = (i + 1) % ps.length;
+    state.puzzleSelectedSq = null;
+    state.puzzleSolved = false;
+    state.puzzleAttemptedCurrent = false;
     renderPuzzle();
   };
 }
 
 /* ---------------- Init ---------------- */
+loadHealth();
 loadGames();
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -17,12 +18,14 @@ CHESSCOM_USERNAME = os.getenv("CHESSCOM_USERNAME", "")
 # --- Rutas ---
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "chess.db"
+_db_override = (os.getenv("CHESSMASTER_DB_PATH") or "").strip()
+DB_PATH = Path(_db_override) if _db_override else (DATA_DIR / "chess.db")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 STOCKFISH_DIR = ROOT / "stockfish"
 
 
 def find_stockfish() -> str | None:
-    """Localiza el ejecutable de Stockfish (variable de entorno o carpeta stockfish/)."""
+    """Localiza el ejecutable de Stockfish (variable de entorno, carpeta stockfish/ o PATH)."""
     env_path = os.getenv("STOCKFISH_PATH")
     if env_path and Path(env_path).exists():
         return env_path
@@ -32,7 +35,17 @@ def find_stockfish() -> str | None:
             exes = [p for p in STOCKFISH_DIR.rglob(pattern) if p.is_file()]
             if exes:
                 return str(exes[0])
+    sys_sf = shutil.which("stockfish")
+    if sys_sf:
+        return sys_sf
     return None
+
+
+def set_chesscom_username(username: str) -> None:
+    """Actualiza el usuario de Chess.com y su User-Agent en tiempo de ejecución."""
+    global CHESSCOM_USERNAME, HTTP_USER_AGENT
+    CHESSCOM_USERNAME = username.strip()
+    HTTP_USER_AGENT = f"chess-master/0.1 (analysis tool; user: {CHESSCOM_USERNAME or 'unknown'})"
 
 
 STOCKFISH_PATH = find_stockfish()

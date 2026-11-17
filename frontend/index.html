@@ -24,6 +24,26 @@
     <!-- Lista de partidas -->
     <section id="games-view">
       <h2>Tus partidas</h2>
+      <div class="fetch-bar">
+        <input id="input-user" type="text" placeholder="Usuario de Chess.com (ej. Hikaru)" />
+        <button id="btn-fetch-user" class="btn accent">Descargar de Chess.com</button>
+        <button id="btn-import-pgn" class="btn">📥 Importar PGN</button>
+        <button id="btn-demo-game" class="btn">♟️ Partida Demo</button>
+      </div>
+      <div id="pgn-modal" class="pgn-box hidden">
+        <textarea id="input-pgn" rows="5" placeholder="Pega aquí el PGN de una partida..."></textarea>
+        <div class="pgn-controls">
+          <label>Tus piezas:
+            <select id="select-pgn-color">
+              <option value="white">Blancas</option>
+              <option value="black">Negras</option>
+            </select>
+          </label>
+          <button id="btn-pgn-submit" class="btn accent">Guardar partida PGN</button>
+          <button id="btn-pgn-cancel" class="btn ghost">Cancelar</button>
+        </div>
+      </div>
+      <div id="engine-banner" class="sub"></div>
       <div id="games-actions" class="games-actions"></div>
       <div id="games-list" class="games-list"></div>
     </section>
